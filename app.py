@@ -7,7 +7,7 @@ from playwright.async_api import async_playwright
 st.set_page_config(page_title="Качество на въздуха – Пловдив", layout="wide")
 
 st.title("Качество на въздуха в Пловдив (данни от ИАОС)")
-st.markdown("Изтегляне в реално време на данни от сайта на [eea.government.bg/kav](https://eea.government.bg/kav/)")
+st.markdown("Изтегляне в реално време на данни от [eea.government.bg/kav](https://eea.government.bg/kav/)")
 
 @st.cache_data(show_spinner=True)
 def get_data_sync():
@@ -18,21 +18,17 @@ async def scrape_data():
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
         await page.goto("https://eea.government.bg/kav/", timeout=60000)
-        await page.wait_for_timeout(10000)  # Изчакване на динамично зареждане
+        await page.wait_for_timeout(10000)
 
         content = await page.content()
         await browser.close()
 
         soup = BeautifulSoup(content, "lxml")
         tables = pd.read_html(str(soup))
-        if tables:
-            # Филтрираме таблиците, които съдържат "Пловдив"
-            for df in tables:
-                if df.astype(str).apply(lambda row: row.str.contains("Пловдив").any(), axis=1).any():
-                    return df
-            return tables[0]  # ако няма конкретна за Пловдив, връщаме първата
-        else:
-            return None
+        for df in tables:
+            if df.astype(str).apply(lambda row: row.str.contains("Пловдив").any(), axis=1).any():
+                return df
+        return tables[0] if tables else None
 
 if st.button("Изтегли данните"):
     with st.spinner("Зареждане на данни..."):
@@ -42,11 +38,6 @@ if st.button("Изтегли данните"):
             st.dataframe(df, use_container_width=True)
 
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📥 Свали като CSV",
-                data=csv,
-                file_name="plovdiv_air.csv",
-                mime="text/csv"
-            )
+            st.download_button("📥 Свали като CSV", data=csv, file_name="plovdiv_air.csv", mime="text/csv")
         else:
-            st.error("Не успяхме да намерим таблицата с данни.")
+            st.error("Не успяхме да заредим таблицата.")
