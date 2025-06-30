@@ -1,31 +1,52 @@
 import streamlit as st
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-import time
 import pandas as pd
+from bs4 import BeautifulSoup
+import asyncio
+from playwright.async_api import async_playwright
 
-def scrape_data():
-    options = Options()
-    options.add_argument("--headless")
-    driver = webdriver.Chrome(options=options)
+st.set_page_config(page_title="Качество на въздуха – Пловдив", layout="wide")
 
-    driver.get("https://eea.government.bg/kav/")
-    time.sleep(10)  # По-добре с WebDriverWait
+st.title("Качество на въздуха в Пловдив (данни от ИАОС)")
+st.markdown("Изтегляне в реално време на данни от сайта на [eea.government.bg/kav](https://eea.government.bg/kav/)")
 
-    # Тук трябва да добавиш код за кликване върху справки, избор на град, станция и параметри
+@st.cache_data(show_spinner=True)
+def get_data_sync():
+    return asyncio.run(scrape_data())
 
-    tables = pd.read_html(driver.page_source)
-    driver.quit()
+async def scrape_data():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.goto("https://eea.government.bg/kav/", timeout=60000)
+        await page.wait_for_timeout(10000)  # Изчакване на динамично зареждане
 
-    return tables[0] if tables else None
+        content = await page.content()
+        await browser.close()
 
-st.title("Качество на въздуха в Пловдив")
+        soup = BeautifulSoup(content, "lxml")
+        tables = pd.read_html(str(soup))
+        if tables:
+            # Филтрираме таблиците, които съдържат "Пловдив"
+            for df in tables:
+                if df.astype(str).apply(lambda row: row.str.contains("Пловдив").any(), axis=1).any():
+                    return df
+            return tables[0]  # ако няма конкретна за Пловдив, връщаме първата
+        else:
+            return None
 
-if st.button("Изтегли данни"):
-    df = scrape_data()
-    if df is not None:
-        st.dataframe(df)
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("Свали като CSV", csv, "plovdiv_air.csv", "text/csv")
-    else:
-        st.error("Не успях да заредя данните.")
+if st.button("Изтегли данните"):
+    with st.spinner("Зареждане на данни..."):
+        df = get_data_sync()
+        if df is not None:
+            st.success("Данните са заредени успешно.")
+            st.dataframe(df, use_container_width=True)
+
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Свали като CSV",
+                data=csv,
+                file_name="plovdiv_air.csv",
+                mime="text/csv"
+            )
+        else:
+            st.error("Не успяхме да намерим таблицата с данни.")
