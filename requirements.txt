@@ -1,5 +1,5 @@
 streamlit
-selenium
 pandas
-beautifulsoup4
+playwright
+bs4
 lxml
